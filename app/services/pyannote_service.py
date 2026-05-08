@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import wave
 from pathlib import Path
 
 from app.core.config import AppConfig
@@ -39,7 +40,44 @@ def pyannote_readiness(model_id: str = "pyannote/speaker-diarization-community-1
     return "ready (access verified)"
 
 
-def diarize_audio(audio_path: Path, config: AppConfig, backend: BackendSelection) -> list[SpeakerTurn]:
+def _load_wav_for_pyannote(audio_path: Path, torch):
+    with wave.open(str(audio_path), "rb") as wav:
+        channels = wav.getnchannels()
+        sample_width = wav.getsampwidth()
+        sample_rate = wav.getframerate()
+        frames = wav.getnframes()
+        raw_audio = wav.readframes(frames)
+
+    if sample_width != 2:
+        raise DiarizationError(
+            f"Expected 16-bit PCM WAV for diarization, got {sample_width * 8}-bit audio."
+        )
+
+    waveform = torch.frombuffer(bytearray(raw_audio), dtype=torch.int16).to(torch.float32) / 32768.0
+    if channels > 1:
+        waveform = waveform.reshape(-1, channels).mean(dim=1)
+
+    return {"waveform": waveform.unsqueeze(0), "sample_rate": sample_rate}
+
+
+def _speaker_turns_from_annotation(annotation) -> list[SpeakerTurn]:
+    if hasattr(annotation, "itertracks"):
+        return [
+            SpeakerTurn(start=turn.start, end=turn.end, speaker=str(speaker))
+            for turn, _, speaker in annotation.itertracks(yield_label=True)
+        ]
+
+    return [
+        SpeakerTurn(start=turn.start, end=turn.end, speaker=str(speaker))
+        for turn, speaker in annotation
+    ]
+
+
+def diarize_audio(
+    audio_path: Path,
+    config: AppConfig,
+    backend: BackendSelection,
+) -> list[SpeakerTurn]:
     token = os.getenv("HUGGINGFACE_HUB_TOKEN")
     if not token:
         raise DependencyMissingError(
@@ -67,11 +105,11 @@ def diarize_audio(audio_path: Path, config: AppConfig, backend: BackendSelection
             if config.diarization.max_speakers > 0:
                 kwargs["max_speakers"] = config.diarization.max_speakers
 
-        output = pipeline(str(audio_path), **kwargs)
-        diarization = getattr(output, "exclusive_speaker_diarization", None) or output.speaker_diarization
-        return [
-            SpeakerTurn(start=turn.start, end=turn.end, speaker=str(speaker))
-            for turn, speaker in diarization
-        ]
+        pyannote_audio = _load_wav_for_pyannote(audio_path, torch)
+        output = pipeline(pyannote_audio, **kwargs)
+        diarization = (
+            getattr(output, "exclusive_speaker_diarization", None) or output.speaker_diarization
+        )
+        return _speaker_turns_from_annotation(diarization)
     except Exception as exc:
         raise DiarizationError(str(exc)) from exc

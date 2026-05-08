@@ -29,7 +29,7 @@ def _progress_printer(progress: PipelineProgress) -> None:
 def _print_run_summary(result: PipelineResult) -> None:
     table = Table(title="WhoSaid Run Summary")
     table.add_column("Field")
-    table.add_column("Value")
+    table.add_column("Value", overflow="ignore", no_wrap=True)
     table.add_row("Output directory", str(result.output_dir))
     table.add_row("Input media", str(result.input_media.source_path))
     table.add_row("Media type", result.input_media.media_type.value)
@@ -40,7 +40,8 @@ def _print_run_summary(result: PipelineResult) -> None:
     table.add_row("Speaker turns", str(len(result.speaker_turns)))
     table.add_row("Aligned segments", str(len(result.aligned_segments)))
     artifacts = (
-        ", ".join(f"{artifact.format}: {artifact.path}" for artifact in result.artifacts) or "none"
+        ", ".join(f"{artifact.format}: {artifact.path.name}" for artifact in result.artifacts)
+        or "none"
     )
     table.add_row("Artifacts", artifacts)
     console.print(table)
