@@ -1,0 +1,44 @@
+[project]
+name = "whosaid"
+version = "0.1.0"
+description = "Local-first CLI for speaker-labeled transcription"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "faster-whisper>=1.1.1",
+  "orjson>=3.10.18",
+  "platformdirs>=4.3.8",
+  "pydantic>=2.11.4",
+  "pydantic-settings>=2.9.1",
+  "pyannote.audio>=4.0.4",
+  "rich>=14.0.0",
+  "typer>=0.15.3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.5",
+  "pytest-cov>=6.1.1",
+  "ruff>=0.11.8",
+]
+
+[project.scripts]
+whosaid = "app.main:main"
+whosaid-cli = "app.main:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["app", "app.*"]
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
