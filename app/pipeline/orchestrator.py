@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from uuid import uuid4
 
 from app.core.config import AppConfig
 from app.core.hardware import detect_hardware, resolve_backend
 from app.core.models import PipelineProgress, PipelineResult, PipelineStage
-from app.core.paths import app_output_dir
 from app.pipeline.align import align_segments
 from app.pipeline.diarize import diarize
 from app.pipeline.export import export_all
@@ -21,6 +19,17 @@ def _emit(callback, stage: PipelineStage, message: str, percent: float | None = 
         callback(PipelineProgress(stage=stage, message=message, percent=percent))
 
 
+def _resolve_output_dir(media_path: Path, config: AppConfig) -> Path:
+    configured_output_dir = config.general.output_dir.strip()
+    output_dir = (
+        Path(configured_output_dir).expanduser()
+        if configured_output_dir
+        else media_path.parent / "outputs"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
 def run_job(media_path: Path, config: AppConfig, progress_cb=None) -> PipelineResult:
     _emit(progress_cb, PipelineStage.INSPECT, "Inspecting media", 5)
     media = inspect_media(media_path, config)
@@ -29,8 +38,7 @@ def run_job(media_path: Path, config: AppConfig, progress_cb=None) -> PipelineRe
     hardware = detect_hardware()
     backend = resolve_backend(config, hardware)
 
-    job_dir = app_output_dir() / f"{media_path.stem}-{uuid4().hex[:8]}"
-    job_dir.mkdir(parents=True, exist_ok=True)
+    job_dir = _resolve_output_dir(media_path, config)
 
     _emit(progress_cb, PipelineStage.PREPROCESS, "Normalizing media to WAV", 20)
     audio_path = preprocess_media(media, job_dir, config)
