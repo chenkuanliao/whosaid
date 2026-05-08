@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import warnings
 import wave
+from contextlib import contextmanager
 from pathlib import Path
 
 from app.core.config import AppConfig
@@ -9,12 +11,40 @@ from app.core.errors import DependencyMissingError, DiarizationError
 from app.core.models import BackendSelection, SpeakerTurn
 
 
+@contextmanager
+def _suppress_known_pyannote_warnings():
+    if os.getenv("WHOSAID_SHOW_WARNINGS"):
+        yield
+        return
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"\s*torchcodec is not installed correctly.*",
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r"TensorFloat-32 \(TF32\) has been disabled.*",
+            category=Warning,
+            module=r"pyannote\.audio\.utils\.reproducibility",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r"std\(\): degrees of freedom is <= 0\..*",
+            category=UserWarning,
+            module=r"pyannote\.audio\.models\.blocks\.pooling",
+        )
+        yield
+
+
 def pyannote_readiness(model_id: str = "pyannote/speaker-diarization-community-1") -> str:
     token = os.getenv("HUGGINGFACE_HUB_TOKEN")
     if not token:
         return "token missing"
     try:
-        import pyannote.audio  # noqa: F401
+        with _suppress_known_pyannote_warnings():
+            import pyannote.audio  # noqa: F401
     except Exception as exc:
         return f"missing: {exc}"
     try:
@@ -85,28 +115,30 @@ def diarize_audio(
         )
 
     try:
-        import torch
-        from pyannote.audio import Pipeline
+        with _suppress_known_pyannote_warnings():
+            import torch
+            from pyannote.audio import Pipeline
     except Exception as exc:
         raise DependencyMissingError(f"pyannote.audio is unavailable: {exc}") from exc
 
     try:
-        pipeline = Pipeline.from_pretrained(config.diarization.model, token=token)
-        if backend.diarization_device == "cuda":
-            pipeline.to(torch.device("cuda"))
+        with _suppress_known_pyannote_warnings():
+            pipeline = Pipeline.from_pretrained(config.diarization.model, token=token)
+            if backend.diarization_device == "cuda":
+                pipeline.to(torch.device("cuda"))
 
-        kwargs = {}
-        mode = config.diarization.speaker_count_mode
-        if mode == "fixed" and config.diarization.fixed_speakers > 0:
-            kwargs["num_speakers"] = config.diarization.fixed_speakers
-        elif mode == "minmax":
-            if config.diarization.min_speakers > 0:
-                kwargs["min_speakers"] = config.diarization.min_speakers
-            if config.diarization.max_speakers > 0:
-                kwargs["max_speakers"] = config.diarization.max_speakers
+            kwargs = {}
+            mode = config.diarization.speaker_count_mode
+            if mode == "fixed" and config.diarization.fixed_speakers > 0:
+                kwargs["num_speakers"] = config.diarization.fixed_speakers
+            elif mode == "minmax":
+                if config.diarization.min_speakers > 0:
+                    kwargs["min_speakers"] = config.diarization.min_speakers
+                if config.diarization.max_speakers > 0:
+                    kwargs["max_speakers"] = config.diarization.max_speakers
 
-        pyannote_audio = _load_wav_for_pyannote(audio_path, torch)
-        output = pipeline(pyannote_audio, **kwargs)
+            pyannote_audio = _load_wav_for_pyannote(audio_path, torch)
+            output = pipeline(pyannote_audio, **kwargs)
         diarization = (
             getattr(output, "exclusive_speaker_diarization", None) or output.speaker_diarization
         )
