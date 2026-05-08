@@ -8,7 +8,7 @@ from app.core.errors import DependencyMissingError, DiarizationError
 from app.core.models import BackendSelection, SpeakerTurn
 
 
-def pyannote_readiness() -> str:
+def pyannote_readiness(model_id: str = "pyannote/speaker-diarization-community-1") -> str:
     token = os.getenv("HUGGINGFACE_HUB_TOKEN")
     if not token:
         return "token missing"
@@ -16,7 +16,27 @@ def pyannote_readiness() -> str:
         import pyannote.audio  # noqa: F401
     except Exception as exc:
         return f"missing: {exc}"
-    return "ready (token present)"
+    try:
+        from huggingface_hub import HfApi
+        from huggingface_hub.errors import GatedRepoError, HfHubHTTPError
+    except Exception:
+        return "ready (token present; access not verified)"
+
+    try:
+        HfApi().model_info(model_id, token=token)
+    except GatedRepoError:
+        return f"gated: request access to {model_id}"
+    except HfHubHTTPError as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if status_code == 401:
+            return "token invalid or unauthorized"
+        if status_code == 403:
+            return f"gated: request access to {model_id}"
+        return f"hub error: {exc}"
+    except Exception as exc:
+        return f"unable to verify access: {exc}"
+
+    return "ready (access verified)"
 
 
 def diarize_audio(audio_path: Path, config: AppConfig, backend: BackendSelection) -> list[SpeakerTurn]:

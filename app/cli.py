@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -8,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from app.core.config import AppConfig, config_path, ensure_config_file, load_config
-from app.core.models import PipelineProgress
+from app.core.models import PipelineProgress, PipelineResult
 from app.pipeline.inspect import inspect_media
 from app.pipeline.orchestrator import run_job
 
@@ -25,6 +26,26 @@ def _progress_printer(progress: PipelineProgress) -> None:
     console.print(message)
 
 
+def _print_run_summary(result: PipelineResult) -> None:
+    table = Table(title="WhoSaid Run Summary")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("Output directory", str(result.output_dir))
+    table.add_row("Input media", str(result.input_media.source_path))
+    table.add_row("Media type", result.input_media.media_type.value)
+    table.add_row("Duration (seconds)", f"{result.input_media.duration_seconds:.2f}")
+    table.add_row("Backend", result.backend.mode)
+    table.add_row("Compute type", result.backend.compute_type)
+    table.add_row("Transcript segments", str(len(result.transcript_segments)))
+    table.add_row("Speaker turns", str(len(result.speaker_turns)))
+    table.add_row("Aligned segments", str(len(result.aligned_segments)))
+    artifacts = (
+        ", ".join(f"{artifact.format}: {artifact.path}" for artifact in result.artifacts) or "none"
+    )
+    table.add_row("Artifacts", artifacts)
+    console.print(table)
+
+
 @cli.command()
 def doctor() -> None:
     from app.core.hardware import detect_hardware
@@ -32,10 +53,11 @@ def doctor() -> None:
     from app.services.pyannote_service import pyannote_readiness
     from app.services.whisper_service import whisper_readiness
 
+    config = load_config()
     hardware = detect_hardware()
     ffmpeg = check_ffmpeg()
     whisper = whisper_readiness()
-    pyannote = pyannote_readiness()
+    pyannote = pyannote_readiness(config.diarization.model)
 
     table = Table(title="WhoSaid Doctor")
     table.add_column("Check")
@@ -46,7 +68,7 @@ def doctor() -> None:
     table.add_row("pyannote", pyannote)
     table.add_row(
         "Hugging Face token",
-        "present" if pyannote.startswith("ready") else "missing or gated",
+        "present" if os.getenv("HUGGINGFACE_HUB_TOKEN") else "missing",
     )
     console.print(table)
 
@@ -76,7 +98,8 @@ def run(
         config.export.formats = exports
 
     result = run_job(media_path, config, _progress_printer)
-    console.print_json(result.model_dump_json(indent=2))
+    _print_run_summary(result)
+
 
 @config_app.command("init")
 def config_init() -> None:
