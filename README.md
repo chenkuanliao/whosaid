@@ -36,6 +36,11 @@ whosaid run /path/to/media.mp4
 whosaid doctor
 whosaid inspect /path/to/file.mp4
 whosaid run /path/to/file.mp4 --exports txt --exports json --exports srt
+whosaid link-speakers
+whosaid link-speakers /path/to/outputs
 whosaid config init
 whosaid config show
 ```
+
+After `run`, use `link-speakers` to replace diarization ids like `SPEAKER_00` with names.
+Press Enter at a prompt to skip that speaker and keep the original id.

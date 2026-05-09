@@ -12,6 +12,15 @@ from app.core.config import AppConfig, config_path, ensure_config_file, load_con
 from app.core.models import PipelineProgress, PipelineResult
 from app.pipeline.inspect import inspect_media
 from app.pipeline.orchestrator import run_job
+from app.pipeline.speaker_linking import (
+    apply_speaker_names,
+    exported_formats,
+    find_result_json,
+    load_result,
+    rewrite_exports,
+    speaker_ids,
+)
+from app.storage.recent_jobs import load_recent_jobs
 
 cli = typer.Typer(no_args_is_help=True, rich_markup_mode="markdown")
 config_app = typer.Typer(no_args_is_help=True)
@@ -100,6 +109,58 @@ def run(
 
     result = run_job(media_path, config, _progress_printer)
     _print_run_summary(result)
+
+
+@cli.command("link-speakers")
+def link_speakers(
+    output_path: Annotated[
+        Path | None,
+        typer.Argument(
+            help="Output directory or .transcript.json file. Defaults to the latest run."
+        ),
+    ] = None,
+) -> None:
+    if output_path is None:
+        recent_jobs = load_recent_jobs()
+        if not recent_jobs:
+            console.print("No previous run output found. Run `whosaid run` first.")
+            raise typer.Exit(1)
+        output_path = recent_jobs[0].output_dir
+
+    result_path = find_result_json(output_path)
+    if result_path is None:
+        console.print(f"No transcript JSON output found at {output_path}.")
+        raise typer.Exit(1)
+
+    try:
+        result = load_result(result_path)
+    except Exception as exc:
+        console.print(f"Could not read transcript output at {result_path}: {exc}")
+        raise typer.Exit(1) from exc
+
+    speakers = speaker_ids(result)
+    if not speakers:
+        console.print(f"No speaker ids found in {result_path}. Nothing to link.")
+        raise typer.Exit(1)
+
+    names: dict[str, str] = {}
+    console.print("Link speaker ids to names. Press Enter to skip a speaker.")
+    for speaker in speakers:
+        name = typer.prompt(f"Name for {speaker}", default="", show_default=False)
+        if name.strip():
+            names[speaker] = name.strip()
+
+    if not names:
+        console.print("No speaker names provided. Outputs were left unchanged.")
+        return
+
+    apply_speaker_names(result, names)
+    formats = exported_formats(result, result_path)
+    written = rewrite_exports(result, result_path, formats)
+
+    console.print("Updated speaker names in:")
+    for path in written:
+        console.print(f"- {path}")
 
 
 @config_app.command("init")
