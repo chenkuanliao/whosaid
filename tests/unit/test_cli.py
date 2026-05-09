@@ -113,6 +113,29 @@ def test_link_speakers_rewrites_existing_exports(tmp_path: Path) -> None:
     assert updated.aligned_segments[0].speaker == "Alice"
 
 
+def test_link_speakers_ignores_unaligned_diarization_speakers(tmp_path: Path) -> None:
+    media_path = tmp_path / "sample.wav"
+    media_path.write_bytes(b"")
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    result = _sample_result(media_path, output_dir, "hello there")
+    result.speaker_turns.append(SpeakerTurn(start=2.0, end=3.0, speaker="SPEAKER_02"))
+
+    export_json(result, output_dir / "sample.transcript.json")
+
+    completed = runner.invoke(cli, ["link-speakers", str(output_dir)], input="Alice\n")
+
+    assert completed.exit_code == 0
+    assert "Name for SPEAKER_02" not in completed.stdout
+
+    updated = PipelineResult.model_validate_json(
+        (output_dir / "sample.transcript.json").read_text()
+    )
+    assert updated.speaker_turns[0].speaker == "Alice"
+    assert updated.speaker_turns[1].speaker == "SPEAKER_02"
+    assert updated.aligned_segments[0].speaker == "Alice"
+
+
 def test_link_speakers_skip_leaves_outputs_unchanged(tmp_path: Path) -> None:
     media_path = tmp_path / "sample.wav"
     media_path.write_bytes(b"")

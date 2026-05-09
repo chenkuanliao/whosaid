@@ -29,7 +29,8 @@ def load_result(result_path: Path) -> PipelineResult:
 
 def speaker_ids(result: PipelineResult) -> list[str]:
     speakers = {segment.speaker for segment in result.aligned_segments}
-    speakers.update(turn.speaker for turn in result.speaker_turns)
+    if not speakers:
+        speakers.update(turn.speaker for turn in result.speaker_turns)
     return sorted(speakers)
 
 
